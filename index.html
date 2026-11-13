@@ -1563,12 +1563,12 @@ const Cloud={
     if(!r.ok){ const m=(j&&j.message)||("http_"+r.status); if(m==="not_logged_in"||m==="not_tutor"){ Cloud.expired(); } throw new Error(m); }
     return j;
   },
-  tok(){ return this.get("token"); },
-  expired(){ this.set("token",null); this.set("role",null); if(state.user){ state.user=null; state.view="home"; state.page="home"; alertModal("หมดเวลาการเข้าระบบ กรุณาเข้าสู่ระบบใหม่"); render(); } },
+  _t:null, tok(){ return this._t || (this._t=this.get("token")); }, setTok(t){ this._t=t; this.set("token",t); },
+  expired(){ this.setTok(null); this.set("role",null); if(state.user){ state.user=null; state.view="home"; state.page="home"; alertModal("หมดเวลาการเข้าระบบ กรุณาเข้าสู่ระบบใหม่"); render(); } },
   async loadPublic(){ if(!this.code) return; try{ this.roster=await this.rpc("rt_roster_public",{p_code:this.code}); this.err=""; }catch(e){ if(e.message==="bad_code"){ this.code=null; this.set("code",null); this.err="รหัสหน่วยไม่ถูกต้อง"; } else this.err="เชื่อมต่อระบบไม่ได้ ลองใหม่อีกครั้ง"; } },
   async loadTutor(){ const d=await this.rpc("rt_tutor_all",{p_token:this.tok()}); this.roster=d.roster; this.attempts=d.attempts.map(fixAtt); this.code=d.code; },
   async loadMe(){ const d=await this.rpc("rt_me",{p_token:this.tok()}); this.attempts=d.attempts.map(fixAtt); this.vmarks=d.vmarks||{}; const i=this.roster.findIndex(m=>m.id===d.member.id); if(i>=0) this.roster[i]=d.member; else this.roster.push(d.member); return d.member; },
-  logout(){ const t=this.tok(); if(t) this.rpc("rt_logout",{p_token:t}).catch(()=>{}); this.set("token",null); this.set("role",null); this.attempts=[]; this.vmarks={}; IS_ADMIN=false; },
+  logout(){ const t=this.tok(); if(t) this.rpc("rt_logout",{p_token:t}).catch(()=>{}); this.setTok(null); this.set("role",null); this.attempts=[]; this.vmarks={}; IS_ADMIN=false; },
 };
 function fixAtt(a){ return Object.assign({},a); }
 const ERRS={bad_pin:"PIN ไม่ถูกต้อง",bad_code:"รหัสหน่วยไม่ถูกต้อง",locked:"ใส่ PIN ผิดหลายครั้ง ระบบล็อกชั่วคราว 15 นาที (หรือให้ผู้ติวรีเซ็ต)",duplicate:"มีชื่อนี้ในรายการแล้ว — กลับไปเลือกชื่อจากรายการ",bad_pin_format:"PIN ต้องเป็นตัวเลข 6 หลัก",network:"เชื่อมต่ออินเทอร์เน็ตไม่ได้",no_member:"ไม่พบรายชื่อนี้",too_many:"ส่งผลถี่เกินไป ลองใหม่อีกครั้ง",bad_set:"ไฟล์ชุดสอบไม่ถูกต้อง (ต้องมี 100 ข้อ)"};
@@ -1690,13 +1690,13 @@ bindProto=function(){
     if(!/^\d{6}$/.test(p)) return msg.textContent="PIN ต้องเป็นตัวเลข 6 หลัก";
     if(!m.pin && p!==($("#lgPin2").value||"").trim()) return msg.textContent="PIN ทั้งสองช่องไม่ตรงกัน";
     busy("#lgGo",true); msg.textContent="กำลังเข้าสู่ระบบ…";
-    try{ const r=await Cloud.rpc("rt_login",{p_code:Cloud.code,p_id:m.id,p_pin:p}); Cloud.set("token",r.token); Cloud.set("role","student"); Cloud.set("mid",r.id);
+    try{ const r=await Cloud.rpc("rt_login",{p_code:Cloud.code,p_id:m.id,p_pin:p}); Cloud.setTok(r.token); Cloud.set("role","student"); Cloud.set("mid",r.id);
       const me=await Cloud.loadMe(); state.user={id:me.id, role:"student"}; state.name=memberName(me); state.view="home"; state.loginId=null; sbRealtime(); flushOutbox(); render(); window.scrollTo({top:0}); }
     catch(e){ msg.textContent=errTH(e); busy("#lgGo",false); } };
   re("#lgGo",go); enter("#lgPin, #lgPin2",go);
   // tutor login
   const tgo=async()=>{ const p=($("#tPin").value||"").trim(); busy("#tGo",true);
-    try{ const r=await Cloud.rpc("rt_tutor_login",{p_pin:p}); Cloud.set("token",r.token); Cloud.set("role","tutor"); await Cloud.loadTutor(); if(Cloud.code) Cloud.set("code",Cloud.code);
+    try{ const r=await Cloud.rpc("rt_tutor_login",{p_pin:p}); Cloud.setTok(r.token); Cloud.set("role","tutor"); await Cloud.loadTutor(); if(Cloud.code) Cloud.set("code",Cloud.code);
       IS_ADMIN=true; EXAM_SETS=null; loadExamSets().then(()=>render()); state.user={role:"tutor"}; state.name="ผู้ติว"; state.view="home"; sbRealtime(); render(); }
     catch(e){ $("#tMsg").textContent=errTH(e); busy("#tGo",false); } };
   re("#tGo",tgo); enter("#tPin",tgo);
@@ -1709,7 +1709,7 @@ bindProto=function(){
     if(!Cloud.code) return msg.textContent="ใส่รหัสหน่วยก่อน";
     busy("#suGo",true);
     try{ const r=await Cloud.rpc("rt_signup",{p_code:Cloud.code,p_rank:rank,p_first:first,p_last:last,p_unit:unit,p_type:interest?"ผู้สนใจ":"",p_pin:p1});
-      Cloud.set("token",r.token); Cloud.set("role","student"); Cloud.set("mid",r.id); const me=await Cloud.loadMe();
+      Cloud.setTok(r.token); Cloud.set("role","student"); Cloud.set("mid",r.id); const me=await Cloud.loadMe();
       state.signup=false; state.user={id:me.id, role:"student"}; state.name=memberName(me); state.view="home"; sbRealtime(); render(); window.scrollTo({top:0}); }
     catch(e){ msg.textContent=errTH(e); busy("#suGo",false); } });
   // tutor: change PIN / unit code / refresh / exam set upload
