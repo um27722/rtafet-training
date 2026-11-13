@@ -1558,6 +1558,60 @@ function navBar(){ if(!state.user||state.view==="exam"||state.view==="result") r
 
 
 /* ======================================================================
+   STATIC AUDIO — ไฟล์เสียงอัดล่วงหน้า (เสียงคนจริงแบบ neural, ผู้ชายเป็นผู้บรรยาย)
+   ชุดฝึก: audio/<hash>.mp3 (เปิดได้) · ชุดสอบ 🔒: audio/x/<hash>.bin เข้ารหัส AES-GCM — กุญแจอยู่ในไฟล์ชุดสอบเท่านั้น
+   ====================================================================== */
+const AUDIO_PUB = new Set(["05280c455710", "0b7411be3774", "0edc40bbeb91", "102c135c91e5", "13a004ea0d2c", "14ebcf58defd", "18348045a336", "1be969949afb", "1ef48d4fc863", "1f9f37fbc84e", "21275b304034", "21418ade1ed1", "27aa76996d31", "284ace9e71f6", "303d15d1f555", "3053394b6053", "330f84b1387a", "36a9088c45e6", "42e62dedecc0", "4a70d0011db5", "4c3d98140bfb", "4c7bb3da8bbb", "4e27b4d08e91", "5a8bc928a0c1", "5b6fb08a517b", "600da68c37a7", "7097f94464d5", "726e69dd2689", "74ecdc528a22", "7aaf3c4e02e3", "7afef32adc91", "80374157f857", "8320f97f523d", "8f070070e5d8", "9cb2bf508332", "a248e8ff1cc9", "a2855f48324e", "a8c83a50ded6", "a91756cdfe93", "a945fb034363", "a963d15b1bd8", "aa8a8aa9ca6e", "b024c4093b31", "bc5fbd10f9b8", "bd8653a863b7", "bff89ee6d2a3", "c7aa9b9489e6", "cb99f5c7fa71", "cbe9c5acdac5", "cc2319737e98", "d3150eaad3c0", "de5b29fffc78", "dea53f880d38", "dfbabb0b5273", "e18486722c31", "e3a24b5712f8", "e3e63fea12b6", "ea495e15f17b", "eda7c408402a", "ee27d8ac29d4", "ee3b8a136673", "f352b82ff504"]);
+const AUDIO_EL = new Audio(); AUDIO_EL.preload = "auto";
+let audioStop = null, audioUnlocked = false;
+const audioCache = new Map();
+async function lineKey(lines){
+  const b = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(JSON.stringify(lines)));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("").slice(0,12);
+}
+let encKeyObj = null, encKeyFor = null;
+async function audioURL(lines){
+  let key; try{ key = await lineKey(lines); }catch(e){ return null; }
+  if (audioCache.has(key)) return audioCache.get(key);
+  let url = null;
+  if (AUDIO_PUB.has(key)) url = "audio/"+key+".mp3";
+  else if (SET && SET.audio && SET.audio.keys && SET.audio.keys.includes(key)){
+    try{
+      if (encKeyFor !== SET.audio.k){ const raw=Uint8Array.from(atob(SET.audio.k),c=>c.charCodeAt(0)); encKeyObj=await crypto.subtle.importKey("raw",raw,"AES-GCM",false,["decrypt"]); encKeyFor=SET.audio.k; }
+      const r = await fetch((SET.audio.dir||"audio/x/")+key+".bin"); if(!r.ok) return null;
+      const buf = new Uint8Array(await r.arrayBuffer());
+      const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv:buf.slice(0,12)}, encKeyObj, buf.slice(12));
+      url = URL.createObjectURL(new Blob([plain],{type:"audio/mpeg"}));
+    }catch(e){ return null; }
+  }
+  if (url) audioCache.set(key,url);
+  return url;
+}
+function playURL(url){
+  return new Promise(res=>{
+    let done=false; const fin=v=>{ if(done) return; done=true; AUDIO_EL.onended=AUDIO_EL.onerror=null; audioStop=null; res(v); };
+    audioStop = ()=>{ try{ AUDIO_EL.pause(); }catch(e){} fin("stopped"); };
+    AUDIO_EL.onended=()=>fin("ok"); AUDIO_EL.onerror=()=>fin("error");
+    AUDIO_EL.src=url; AUDIO_EL.currentTime=0;
+    const p=AUDIO_EL.play(); if(p&&p.catch) p.catch(()=>fin("blocked"));
+  });
+}
+const _sayTTS = say;
+say = async function(lines){
+  const url = await audioURL(lines);
+  if (url){ audioEngine="file"; const r = await playURL(url); if (r==="ok"||r==="stopped") return r; }
+  return _sayTTS(lines);
+};
+const _stopAudio = stopAudio;
+stopAudio = function(){ if(audioStop) audioStop(); _stopAudio(); };
+// ปลดล็อกการเล่นเสียงบนมือถือ (iOS) ด้วยการแตะครั้งแรก
+document.addEventListener("pointerdown", ()=>{ if(audioUnlocked) return; audioUnlocked=true;
+  try{ AUDIO_EL.src="data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQbFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//WreyTRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948NMBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNKJOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweBv/7UsQbg8isVNoMPMjAAAA0gAAABEVFGmgqK////9bP/6XCykxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"; const p=AUDIO_EL.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){} }, {once:false, capture:true});
+// โหลดล่วงหน้าข้อถัดไประหว่างเว้นเวลาคิด
+async function prefetchAudio(lines){ try{ const u=await audioURL(lines); if(u&&u.startsWith("audio/")) fetch(u).catch(()=>{}); }catch(e){} }
+
+
+/* ======================================================================
    CLOUD LAYER — Supabase (รายชื่อ/PIN/ผลสอบ/ห้องสอบรวม) แทน localStorage
    ====================================================================== */
 const SB_URL="https://fybiufkqjlbwtgkwofmi.supabase.co", SB_KEY="sb_publishable_-p7Rb6V8AppHkVcuOf7NbQ_KsbY_eY8";
