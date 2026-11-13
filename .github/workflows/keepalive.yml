@@ -1,0 +1,12 @@
+name: keep-supabase-awake
+on:
+  schedule:
+    - cron: "17 2 */3 * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -fsS -X POST "https://fybiufkqjlbwtgkwofmi.supabase.co/rest/v1/rpc/rt_ping" \
+            -H "apikey: sb_publishable_-p7Rb6V8AppHkVcuOf7NbQ_KsbY_eY8" -H "Content-Type: application/json" -d '{}'
