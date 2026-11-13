@@ -1134,6 +1134,12 @@ function filterBar(){ const units=[...new Set([...UNITS, ...Store.roster().map(m
 const fullOnly = a => a.max===100;
 const pctOf = v => v&&v[1] ? v[0]/v[1] : null;
 function memberName(m){ return m ? `${m.rank}${m.first} ${m.last}` : "-"; }
+const isDone = m => !!m && m.cert==="C1";
+const doneBadge = m => isDone(m)?` <span class="tag" style="background:#fff3d6;color:#8a6300;font-weight:700">🏁 C1</span>`:"";
+function finishLine(D){ const tot=D.finished.length+D.roster.length, pc=tot?Math.round(D.finished.length/tot*100):0;
+  return `<div class="card" style="margin-bottom:16px;border:2px solid #c9a227;background:linear-gradient(90deg,#fffaf0,#fff)"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="font-size:34px">🏁</div><div style="flex:1;min-width:220px"><h3 style="margin:0">เข้าเส้นชัยแล้ว ${D.finished.length} จาก ${tot} คน</h3><div class="small muted">ผ่าน RTAFET ระดับ C1 — ไม่ต้องสอบอีก (ไม่นับรวมในสถิติคนที่ต้องพัฒนา)</div>
+    <div style="height:12px;background:#f1ece0;border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pc}%;background:#c9a227;border-radius:6px"></div></div></div><div style="font-size:28px;font-weight:700;color:#8a6300">${pc}%</div></div>
+    ${D.finished.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">${D.finished.map(m=>`<span class="tag" style="background:#fff3d6;color:#5c4300;padding:6px 10px;font-size:13px" title="${esc(m.cert_note||"")}">🏅 ${esc(memberName(m))}</span>`).join("")}</div>`:""}</div>`; }
 function memberStats(id){
   const all=Store.attempts().filter(a=>a.memberId===id).sort((a,b)=>a.date-b.date);
   const full=all.filter(fullOnly);
@@ -1208,7 +1214,7 @@ function loginView(){
         ${sel.pin?`<p class="small muted">ลืม PIN? แจ้งผู้ติวให้รีเซ็ต</p>`:""}`
       : `<input class="text" id="lgQ" placeholder="🔍 ค้นหาชื่อ / นามสกุล / หน่วย" value="${esc(q)}">
         <button class="btn" id="suOpen" style="width:100%;margin-top:8px">📝 ไม่มีชื่อในรายการ? สมัครใช้งานเอง</button>
-        <div style="max-height:360px;overflow:auto;margin-top:8px">${list.map(m=>`<button class="mode" data-lg="${m.id}" style="padding:10px 14px;margin-bottom:6px"><b>${esc(memberName(m))}</b><span>${esc(m.unit)}${m.pin?"":" · ยังไม่ตั้ง PIN"}</span></button>`).join("") || `<p class="muted small">ไม่พบชื่อ — แจ้งผู้ติวให้เพิ่มในรายชื่อ</p>`}</div>`}
+        <div style="max-height:360px;overflow:auto;margin-top:8px">${list.map(m=>`<button class="mode" data-lg="${m.id}" style="padding:10px 14px;margin-bottom:6px"><b>${esc(memberName(m))}${isDone(m)?" 🏁":""}</b><span>${esc(m.unit)}${m.pin?"":" · ยังไม่ตั้ง PIN"}</span></button>`).join("") || `<p class="muted small">ไม่พบชื่อ — แจ้งผู้ติวให้เพิ่มในรายชื่อ</p>`}</div>`}
     </div>
     <div class="card"><h3>🎙 ผู้ติว / ผู้ดูแลระบบ</h3>
       <input class="text" id="tPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN ผู้ติว">
@@ -1225,7 +1231,7 @@ function memberDash(id, asTutor){
   const wk=weakSkills(st.sk,3);
   const lastC = st.last? st.last.cefr : "–";
   const head = `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><h2 style="margin:0">${esc(memberName(m))}</h2><div class="small muted">${esc(m.unit)} · ${m.id}</div></div>
-    ${asTutor?`<button class="btn" id="mdBack">← กลับแดชบอร์ด</button>`:""}</div>`;
+    ${asTutor?`<button class="btn" id="mdBack">← กลับแดชบอร์ด</button>`:""}</div>`+(isDone(m)?`<div style="margin-top:14px;padding:16px 18px;border-radius:14px;background:linear-gradient(90deg,#0f2347,#1d3b73);color:#fff;display:flex;gap:14px;align-items:center"><div style="font-size:40px">🏁</div><div><div style="font-size:19px;font-weight:700;color:#f3d27a">เข้าเส้นชัยแล้ว — ระดับ C1</div><div style="opacity:.9">${asTutor?"ผ่าน RTAFET ระดับ C1 แล้ว ไม่ต้องสอบอีก":"ยินดีด้วย! คุณผ่าน RTAFET ระดับ C1 แล้ว ไม่ต้องสอบอีก — ฝึกต่อได้ตามสะดวกเพื่อรักษาระดับ"}${m.cert_note?` · ${esc(m.cert_note)}`:""}</div></div></div>`:"");
   if (!st.all.length) return `<div class="card">${head}<p class="muted">ยังไม่มีผลการทำแบบทดสอบ${asTutor?"":" — เริ่มจาก “จำลองสอบเต็มชุด” ด้านขวา เพื่อดูระดับปัจจุบัน"}</p></div>`;
   return `<div class="card">${head}
     <div class="scorehero" style="margin-top:14px">
@@ -1270,7 +1276,7 @@ function studentHome(){
 
 /* ---------- tutor dashboard ---------- */
 function unitData(){
-  const roster=filteredRoster(), ids=new Set(roster.map(m=>m.id)), atts=Store.attempts().filter(a=>fullOnly(a)&&ids.has(a.memberId));
+  const all0=filteredRoster(), finished=all0.filter(isDone), roster=all0.filter(m=>!isDone(m)), ids=new Set(roster.map(m=>m.id)), atts=Store.attempts().filter(a=>fullOnly(a)&&ids.has(a.memberId));
   const stats=roster.map(m=>({m, s:memberStats(m.id)}));
   const active=stats.filter(x=>x.s.last);
   const now=Date.now();
@@ -1287,7 +1293,7 @@ function unitData(){
   const watch = active.filter(x=>x.s.last.total<48 || (x.s.slope!=null&&x.s.slope<-3) || (x.s.lastDate&&now-x.s.lastDate>21*DAY)).map(x=>({...x, why:[x.s.last.total<48?"ต่ำกว่า B1":null, x.s.slope!=null&&x.s.slope<-3?"คะแนนลดลง":null, now-x.s.lastDate>21*DAY?"ไม่ได้ฝึก > 3 สัปดาห์":null].filter(Boolean)}));
   const never = stats.filter(x=>!x.s.all.length);
   const improved = active.filter(x=>x.s.delta!=null).sort((a,b)=>b.s.delta-a.s.delta).slice(0,5);
-  return {roster, stats, active, weeks, usk, weakCount, dist, avgLatest, active7, b1plus, watch, never, improved};
+  return {roster, finished, stats, active, weeks, usk, weakCount, dist, avgLatest, active7, b1plus, watch, never, improved};
 }
 function tutorDash(){
   const D=unitData(), t=state.tTab;
@@ -1296,8 +1302,8 @@ function tutorDash(){
   let body="";
   if (t==="overview"){
     const weakSorted=Object.keys(D.usk).sort((a,b)=>pctOf(D.usk[a])-pctOf(D.usk[b]));
-    body=`<div class="scorehero">
-      ${kpi(`${D.active.length}<span style="font-size:15px;color:var(--muted)">/${D.roster.length}</span>`,"คนที่มีผลสอบแล้ว", D.never.length?`ยังไม่เคยทำ ${D.never.length} คน`:"")}
+    body=finishLine(D)+`<div class="scorehero">
+      ${kpi(`${D.active.length}<span style="font-size:15px;color:var(--muted)">/${D.roster.length}</span>`,"คนที่ยังต้องสอบ ที่มีผลแล้ว", D.never.length?`ยังไม่เคยทำ ${D.never.length} คน`:"")}
       ${kpi(D.avgLatest!=null?D.avgLatest.toFixed(1):"–","คะแนนเฉลี่ยของกอง (ครั้งล่าสุดของแต่ละคน)")}
       ${kpi(`${D.active.length?Math.round(D.b1plus/D.active.length*100):0}%`,"ถึงระดับ B1 ขึ้นไป (≥ 48)", `${D.b1plus} คน`)}
       ${kpi(D.active7,"ฝึก/สอบใน 7 วันที่ผ่านมา (คน)")}
@@ -1329,7 +1335,7 @@ function tutorDash(){
         <td class="right">${s.avg!=null?s.avg.toFixed(1):"–"}</td><td class="right">${s.best?s.best.total:"–"}</td>
         <td class="right" style="color:${(s.delta||0)>=0?GOOD:BAD}">${s.delta!=null?(s.delta>0?"+":"")+s.delta:"–"}</td><td>${spark(s.full.map(a=>a.total))}</td>
         <td class="small">${w?esc(SK_SHORT[w])+` ${Math.round(pctOf(s.sk[w])*100)}%`:"–"}</td><td class="small">${s.lastDate?fmtD(s.lastDate):"–"}</td></tr>`; }).join("")}</table></div>
-      <p class="small muted">กดชื่อเพื่อดูพัฒนาการและจุดอ่อนของคนนั้น</p></div>`;
+      <p class="small muted">กดชื่อเพื่อดูพัฒนาการและจุดอ่อนของคนนั้น</p>${D.finished.length?`<h3 style="margin-top:16px">🏁 เข้าเส้นชัยแล้ว (ผ่าน C1 ไม่ต้องสอบ)</h3><div style="display:flex;flex-wrap:wrap;gap:6px">${D.finished.map(m=>`<a href="#" data-mem="${m.id}" class="tag" style="background:#fff3d6;color:#5c4300;padding:6px 10px;font-size:13px;text-decoration:none">🏅 ${esc(memberName(m))}</a>`).join("")}</div>`:""}</div>`;
   } else if (t==="skills"){
     const ppl=D.active.slice().sort((a,b)=>a.s.last.total-b.s.last.total);
     const cell=v=>{ if(!v||!v[1]) return `<td></td>`; const p=pctOf(v); const bg=p>=0.7?GOOD:p>=0.5?WARN:BAD; return `<td title="${Math.round(p*100)}%" style="background:${bg}${p>=0.7?"33":p>=0.5?"40":"40"};text-align:center;font-size:12px;color:#1f2937">${Math.round(p*100)}</td>`; };
@@ -1344,8 +1350,8 @@ function tutorDash(){
     const pend=r.filter(m=>m.pending);
     body=(pend.length?`<div class="card" style="margin-bottom:16px;border-color:var(--gold)"><h3>🆕 สมัครใหม่ รอตรวจ (${pend.length})</h3><table class="hist">${pend.map(m=>`<tr><td>${esc(memberName(m))}</td><td class="small">${esc(m.unit||"-")} · ${rankGroup(m)}</td><td class="small">${fmtD(m.created||Date.now())}</td><td class="right"><button class="btn primary" data-rok="${m.id}" style="font-size:12px;padding:4px 8px">ยืนยัน</button> <button class="btn" data-rdel="${m.id}" style="font-size:12px;padding:4px 8px">ลบ</button></td></tr>`).join("")}</table></div>`:"")+`<div class="grid2"><div class="card"><h3>รายชื่อกำลังพล (${r.length} คน)</h3>
       <div style="max-height:520px;overflow:auto"><table class="hist"><tr><th>รหัส</th><th>ชื่อ</th><th>หน่วย</th><th>PIN</th><th></th></tr>
-      ${r.map(m=>`<tr><td class="small">${m.id}</td><td><button class="btn" data-star="${m.id}" style="border:none;padding:0 4px;background:none">${m.star?"⭐":"☆"}</button>${esc(memberName(m))}${m.pending?` <span class="tag" style="background:#fff3d6;color:#8a6300">สมัครเอง</span>`:""}<div class="muted small">${rankGroup(m)}${m.note?" · "+esc(m.note):""}</div></td><td class="small">${esc(m.unit)}</td><td class="small">${m.pin?"ตั้งแล้ว":"<span class='muted'>ยังไม่ตั้ง</span>"}</td>
-        <td class="right"><button class="btn" data-rpin="${m.id}" style="font-size:12px;padding:4px 8px" ${m.pin?"":"disabled"}>รีเซ็ต PIN</button> <button class="btn" data-rtype="${m.id}" style="font-size:12px;padding:4px 8px">${m.type==="ผู้สนใจ"?"ยกเลิกผู้สนใจ":"ตั้งเป็นผู้สนใจ"}</button> <button class="btn" data-rdel="${m.id}" style="font-size:12px;padding:4px 8px">ลบ</button></td></tr>`).join("")}</table></div></div>
+      ${r.map(m=>`<tr><td class="small">${m.id}</td><td><button class="btn" data-star="${m.id}" style="border:none;padding:0 4px;background:none">${m.star?"⭐":"☆"}</button>${esc(memberName(m))}${doneBadge(m)}${m.pending?` <span class="tag" style="background:#fff3d6;color:#8a6300">สมัครเอง</span>`:""}<div class="muted small">${rankGroup(m)}${m.note?" · "+esc(m.note):""}</div></td><td class="small">${esc(m.unit)}</td><td class="small">${m.pin?"ตั้งแล้ว":"<span class='muted'>ยังไม่ตั้ง</span>"}</td>
+        <td class="right"><button class="btn" data-rpin="${m.id}" style="font-size:12px;padding:4px 8px" ${m.pin?"":"disabled"}>รีเซ็ต PIN</button> <button class="btn" data-rcert="${m.id}" style="font-size:12px;padding:4px 8px">${isDone(m)?"ยกเลิก 🏁":"🏁 ผ่าน C1"}</button> <button class="btn" data-rtype="${m.id}" style="font-size:12px;padding:4px 8px">${m.type==="ผู้สนใจ"?"ยกเลิกผู้สนใจ":"ตั้งเป็นผู้สนใจ"}</button> <button class="btn" data-rdel="${m.id}" style="font-size:12px;padding:4px 8px">ลบ</button></td></tr>`).join("")}</table></div></div>
       <div class="card"><h3>เพิ่มรายชื่อ</h3><p class="small muted" style="margin-top:0">วางจาก Excel/Google Sheets ได้เลย บรรทัดละ 1 คน: <b>ยศ/คำนำหน้า · ชื่อ · นามสกุล · หน่วย · (ประเภท)</b> คั่นด้วย Tab หรือ , — พนักงานราชการใส่คำนำหน้า นาย/นาง/นางสาว ได้เลย · ถ้าเป็นผู้สนใจ (ไม่ใช่กำลังพลในกอง) ใส่คอลัมน์ที่ 5 ว่า "ผู้สนใจ"</p>
         <textarea id="rAdd" class="text" rows="8" placeholder="จ.อ.	สมชาย	ใจดี	กองปฏิบัติการทางอวกาศ\nนางสาว	มาลี	ศรีสุข	แผนกธุรการ\nนาย	ก้อง	ภพ	-	ผู้สนใจ"></textarea>
         <button class="btn primary" id="rAddGo">เพิ่มรายชื่อ</button> <span class="small muted" id="rMsg"></span>
@@ -1437,6 +1443,10 @@ function bindProto(){
   on("#clearDemo", ()=>modal(`<h3>ล้างข้อมูลตัวอย่าง?</h3><p class="muted">รายชื่อและผลสอบทั้งหมดในเบราว์เซอร์นี้จะถูกลบ (PIN ผู้ติวยังอยู่)</p><div class="navrow"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="cdYes">ล้าง</button></div>`, ()=>$("#cdYes").addEventListener("click",()=>{ Store.saveRoster([]); Store._s("attempts",[]); Store._s("demoCleared",true); closeModal(); render(); })));
   on("[data-rok]", e=>{ const r=Store.roster(); const m=r.find(x=>x.id===e.currentTarget.dataset.rok); if(m){ delete m.pending; Store.saveRoster(r); render(); } });
   on("[data-rtype]", e=>{ const r=Store.roster(); const m=r.find(x=>x.id===e.currentTarget.dataset.rtype); if(m){ m.type=m.type==="ผู้สนใจ"?"":"ผู้สนใจ"; Store.saveRoster(r); render(); } });
+  on("[data-rcert]", e=>{ const id=e.currentTarget.dataset.rcert; const r=Store.roster(); const m=r.find(x=>x.id===id); if(!m) return;
+    if(isDone(m)){ m.cert=""; m.cert_note=""; Store.saveRoster(r); return render(); }
+    modal(`<h3>🏁 ${esc(memberName(m))} ผ่าน C1 แล้ว</h3><p class="muted small">คนนี้จะขึ้นเป็น "เข้าเส้นชัย" ไม่ต้องสอบอีก และไม่นับในสถิติคนที่ต้องพัฒนา (ยังฝึกได้ตามปกติ)</p><label class="small muted">หมายเหตุ (ไม่บังคับ) เช่น ผลสอบทางการ / ปีที่สอบ</label><input class="text" id="certNote" placeholder="เช่น RTAFET ทางการ 92 คะแนน (ปี 2568)"><div class="navrow"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="certYes">ยืนยัน</button></div>`,
+      ()=>$("#certYes").addEventListener("click",()=>{ m.cert="C1"; m.cert_note=$("#certNote").value.trim(); Store.saveRoster(r); closeModal(); render(); })); });
   on("[data-rpin]", e=>{ Store.resetPin(e.currentTarget.dataset.rpin); render(); });
   on("[data-rdel]", e=>{ const id=e.currentTarget.dataset.rdel; modal(`<h3>ลบรายชื่อ?</h3><p class="muted">ประวัติผลสอบของคนนี้จะยังอยู่ในระบบ</p><div class="navrow"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="delYes">ลบ</button></div>`, ()=>$("#delYes").addEventListener("click",()=>{ Store.saveRoster(Store.roster().filter(x=>x.id!==id)); closeModal(); render(); })); });
   on("#rAddGo", ()=>{ const lines=($("#rAdd").value||"").split(/\n/).map(l=>l.trim()).filter(Boolean); const r=Store.roster(); let n=r.reduce((m,x)=>Math.max(m,+x.id.slice(1)||0),0), added=0;
@@ -1581,7 +1591,7 @@ Object.assign(Store,{
   saveRoster(r){   // เทียบกับข้อมูลเดิมแล้วส่งเฉพาะที่เปลี่ยน (ใช้เฉพาะผู้ติว)
     const old=Object.fromEntries(Cloud.roster.map(m=>[m.id,m])), now=Object.fromEntries(r.map(m=>[m.id,m])), T=Cloud.tok(), jobs=[], adds=[];
     r.forEach(m=>{ const o=old[m.id]; if(!o){ adds.push({rank:m.rank,first:m.first,last:m.last,unit:m.unit||"",type:m.type||"",note:m.note||""}); return; }
-      const p={}; if(!!o.star!==!!m.star) p.star=!!m.star; if((o.type||"")!==(m.type||"")) p.type=m.type||""; if(!!o.pending!==!!m.pending) p.pending=!!m.pending;
+      const p={}; if(!!o.star!==!!m.star) p.star=!!m.star; if((o.type||"")!==(m.type||"")) p.type=m.type||""; if(!!o.pending!==!!m.pending) p.pending=!!m.pending; if((o.cert||"")!==(m.cert||"")||(o.cert_note||"")!==(m.cert_note||"")){ p.cert=m.cert||""; p.cert_note=m.cert_note||""; }
       if(Object.keys(p).length) jobs.push(Cloud.rpc("rt_tutor_update_member",{p_token:T,p_id:m.id,p_patch:p})); });
     Cloud.roster.forEach(o=>{ if(!now[o.id]) jobs.push(Cloud.rpc("rt_tutor_update_member",{p_token:T,p_id:o.id,p_patch:{delete:true}})); });
     if(adds.length) jobs.push(Cloud.rpc("rt_tutor_add_members",{p_token:T,p_rows:adds}));

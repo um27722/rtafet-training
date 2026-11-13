@@ -23,6 +23,8 @@ create table if not exists attempts(
 create table if not exists settings(key text primary key, value text);
 create table if not exists exam_sets(id text primary key, title text, data jsonb not null, updated_at timestamptz default now());
 create table if not exists room(id int primary key default 1, state jsonb default '{}'::jsonb, paper jsonb, updated_at timestamptz default now());
+alter table members add column if not exists cert text default '';
+alter table members add column if not exists cert_note text default '';
 insert into room(id) values (1) on conflict do nothing;
 insert into settings(key,value) values ('tutor_pin_hash', 'unset') on conflict do nothing;
 insert into settings(key,value) values ('unit_code', 'change-me') on conflict do nothing;
@@ -49,13 +51,13 @@ create or replace function _code_ok(p_code text) returns void language plpgsql s
 begin if lower(trim(coalesce(p_code,''))) <> lower((select value from settings where key='unit_code')) then raise exception 'bad_code'; end if; end $$;
 create or replace function _member_json(m members) returns jsonb language sql immutable as $$
   select jsonb_build_object('id',m.id,'rank',m.rank,'first',m.first,'last',m.last,'unit',m.unit,'type',m.type,'note',m.note,
-    'star',m.star,'pending',m.pending,'pin',m.pin_hash is not null,'created',(extract(epoch from m.created_at)*1000)::bigint) $$;
+    'star',m.star,'pending',m.pending,'cert',coalesce(m.cert,''),'cert_note',coalesce(m.cert_note,''),'pin',m.pin_hash is not null,'created',(extract(epoch from m.created_at)*1000)::bigint) $$;
 
 -- ---------- public (unit code) ----------
 create or replace function rt_ping() returns text language sql security definer set search_path=public, extensions as $$ select 'ok'::text $$;
 create or replace function rt_roster_public(p_code text) returns jsonb language plpgsql security definer set search_path=public, extensions as $$
 begin perform _code_ok(p_code);
-  return coalesce((select jsonb_agg(jsonb_build_object('id',id,'rank',rank,'first',first,'last',last,'unit',unit,'pin',pin_hash is not null) order by id)
+  return coalesce((select jsonb_agg(jsonb_build_object('id',id,'rank',rank,'first',first,'last',last,'unit',unit,'cert',coalesce(cert,''),'pin',pin_hash is not null) order by id)
     from members where not deleted), '[]'::jsonb); end $$;
 
 create or replace function rt_login(p_code text, p_id text, p_pin text) returns jsonb language plpgsql security definer set search_path=public, extensions as $$
@@ -129,6 +131,7 @@ create or replace function rt_tutor_update_member(p_token uuid, p_id text, p_pat
 begin perform _tutor(p_token);
   if p_patch ? 'star' then update members set star=(p_patch->>'star')::boolean where id=p_id; end if;
   if p_patch ? 'type' then update members set type=coalesce(p_patch->>'type','') where id=p_id; end if;
+  if p_patch ? 'cert' then update members set cert=coalesce(p_patch->>'cert',''), cert_note=coalesce(p_patch->>'cert_note','') where id=p_id; end if;
   if p_patch ? 'pending' then update members set pending=(p_patch->>'pending')::boolean where id=p_id; end if;
   if p_patch ? 'reset_pin' then update members set pin_hash=null, fail_count=0, locked_until=null where id=p_id; delete from sessions where member_id=p_id; end if;
   if p_patch ? 'delete' then update members set deleted=true where id=p_id; delete from sessions where member_id=p_id; end if; end $$;
