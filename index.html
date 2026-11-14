@@ -173,7 +173,7 @@ useSet(PRACTICE_SETS[0]);
 
 const LV = ["A1","A2","B1","B2","C1"];
 const LISTEN_MIN = 30, READ_MIN = 45;           // พาร์ตฟัง 60 ข้อ 30 นาที · พาร์ตอ่าน 45 นาที
-const REAL_GAPS = [20,25,30];                   // เวลาตอบหลังเสียงจบ (วินาที) ในจังหวะสอบจริง ค่าเริ่มต้น 20
+const REAL_GAPS=[15,20,25,30];                   // เวลาตอบหลังเสียงจบ (วินาที) ในจังหวะสอบจริง ค่าเริ่มต้น 20
 const CEFR_SCALE = [[90,"C1"],[78,"B2"],[48,"B1"],[27,"A2"],[10,"A1"],[0,"No level"]]; // ตารางคะแนน RTAFET → CEFR
 const cefrOf = score => CEFR_SCALE.find(([m])=>score>=m)[1];
 const PARTS = {
@@ -417,7 +417,7 @@ function homeView(){
       <div class="small muted">เลือกชุดฝึก</div>
       <div class="tabs">${PRACTICE_SETS.map(s=>`<button data-setid="${s.id}" class="${state.setId===s.id?"on":""}">${esc(s.title)}</button>`).join("")}</div>
       <button class="mode" data-act="sim"><b>🎧 จำลองสอบเต็มชุด (เสียงรวด)</b><span>ฟัง 60 ข้อต่อเนื่อง ~${estListenMin("real",gapFor())} นาที → อ่าน 40 ข้อ ${READ_MIN} นาที · จอเลื่อนตามเสียง</span></button>
-      <div class="small muted" style="margin:-2px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">เว้นตอบหลังเสียงแต่ละข้อจบ ${seg("sgap",[[8,"8 วิ"],[12,"12 วิ"],[20,"20 วิ (สนามจริง)"],[25,"25 วิ"],[30,"30 วิ"]],state.sgap)}</div>
+      <div class="small muted" style="margin:-2px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">เว้นตอบหลังเสียงแต่ละข้อจบ ${seg("sgap",[[8,"8 วิ"],[12,"12 วิ"],[15,"15 วิ"],[20,"20 วิ (สนามจริง)"],[25,"25 วิ"],[30,"30 วิ"]],state.sgap)}</div>
       ${Object.entries(PARTS).map(([k,p])=>`<button class="mode" data-act="practice" data-part="${k}"><b>ฝึกทีละข้อ · ${p.name}</b><span>${p.range} · ฟังซ้ำได้ · เฉลยและคำอธิบายทันที</span></button>`).join("")}
     </div>`;
   const proctorCard = IS_ADMIN ? `<div class="card" style="border-color:var(--gold)">
@@ -1633,7 +1633,7 @@ function studentHome(){
       <div class="setnow">กำลังใช้: <b>${esc(findPractice(state.setId).title)}</b></div>
       <div class="small muted" style="margin:10px 0 6px">② เลือกวิธีฝึก</div>
       <button class="mode" data-act="sim"><b>🎧 จำลองสอบเต็มชุด · ${esc(findPractice(state.setId).title)}</b><span>ฟัง 60 ข้อ ~${estListenMin("real",gapFor())} นาที → อ่าน 40 ข้อ ${READ_MIN} นาที</span></button>
-      <div class="small muted" style="margin:-2px 0 12px">เว้นตอบหลังเสียงจบ ${seg("sgap",[[8,"8"],[12,"12"],[20,"20 (จริง)"],[25,"25"],[30,"30"]],state.sgap)} วิ</div>
+      <div class="small muted" style="margin:-2px 0 12px">เว้นตอบหลังเสียงจบ ${seg("sgap",[[8,"8"],[12,"12"],[15,"15"],[20,"20 (จริง)"],[25,"25"],[30,"30"]],state.sgap)} วิ</div>
       ${Object.entries(PARTS).map(([k,p])=>`<button class="mode" data-act="practice" data-part="${k}"><b>ฝึกทีละข้อ · ${p.name}</b><span>${p.range} · เฉลยทันที</span></button>`).join("")}
       <button class="mode" disabled style="opacity:.55"><b>👥 เข้าห้องสอบรวม</b><span>เปิดใช้เมื่อเชื่อมฐานข้อมูลจริง</span></button>
       <p class="small muted">ผลทุกครั้งถูกบันทึกเข้าประวัติของคุณ และผู้ติวเห็นภาพรวม</p>
