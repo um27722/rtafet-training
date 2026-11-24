@@ -267,8 +267,8 @@ function makeEngine(opt, hooks){   // opt: {pace:"real"|"fast", gap, audio:true|
     set(n,stage,extra){ E.cur=n; E.stage=stage; E.extra=extra||{}; hooks.item&&hooks.item(E); },
     async run(){
       E.set(null,"intro"); await E.countdown(3);
-      for (const u of E.units){
-        if (E.cancelled) return; await E.wait();
+      for (const u of E.units.slice(opt.from||0)){
+        if (E.cancelled) return; await E.wait(); E.unitIdx=E.units.indexOf(u);
         const t0 = Date.now();
         if (u.type==="dir"){ E.set(u.first,"dir"); if(opt.audio) await say(u.lines); else await sleep(estSec(u.lines)*1000); if(E.cancelled) return; await E.countdown(2); continue; }
         E.set(u.ns[0],"speak",{ns:u.ns, unit:u});
@@ -296,16 +296,25 @@ function findPractice(id){ return PRACTICE_SETS.find(s=>s.id===id) || PRACTICE_S
 function newSession(mode, part){
   const list = part ? ITEMS.filter(x=>x.p===part) : ITEMS.slice();
   return { mode, part:part||null, setId:SET.id, setTitle:SET.title, list:list.map(x=>x.n), idx:0, ans:{}, played:{}, revealed:{},
-    start:Date.now(), deadline:null, finished:false, phase:(mode==="sim"||mode==="room")?"wait":"free", live:{cur:null,stage:null,gapLeft:0}, reveal:true };
+    start:Date.now(), deadline:null, finished:false, phase:(mode==="sim"||mode==="room")?"wait":"free", live:{cur:null,stage:null,gapLeft:0}, reveal:true, follow:true };
 }
 function startPractice(part){ useSet(findPractice(state.setId)); state.session=newSession("practice",part); state.view="exam"; render(); tick(); }
 function startSim(){
   useSet(findPractice(state.setId));
   const s = state.session = newSession("sim"); s.phase="listening"; s.listenEnd = Date.now()+estListenMin("real",gapFor())*60000;
   state.view="exam"; render(); tick();
-  engine = makeEngine({pace:"real", gap:gapFor(), audio:true}, {
-    item(E){ s.live.cur=E.cur; s.live.stage=E.stage; if(E.stage==="gap") s.live.gapLeft=E.extra.len;
-      if (E.cur){ const i=s.list.indexOf(E.cur); if(i>=0) s.idx=i; } render(); },
+  runSimEngine(s, 0);
+}
+function followLive(s, n){   // เลื่อนจอตามเสียง เฉพาะตอนผู้สอบ "ตาม" อยู่ — ถ้ากำลังอ่านข้อถัดไปล่วงหน้า จะไม่ดึงกลับ
+  if (!n) return; const viewing = s.list[s.idx];
+  if (s.follow){ const i=s.list.indexOf(n); if(i>=0) s.idx=i; }
+  else if (viewing===n) s.follow=true;
+}
+function runSimEngine(s, from){
+  s.gap = s.gap || gapFor();
+  engine = makeEngine({pace:"real", gap:s.gap, audio:true, from}, {
+    item(E){ s.live.cur=E.cur; s.live.stage=E.stage; s.unitIdx=E.unitIdx||0; if(E.stage==="gap") s.live.gapLeft=E.extra.len;
+      followLive(s, E.cur); render(); },
     tick(E){ s.live.gapLeft=E.gapLeft; const el=$("#cd"); if(el) el.textContent=Math.ceil(E.gapLeft); },
     done(){ startReading(s); }
   });
@@ -325,7 +334,34 @@ function tick(){
 }
 const cur = () => ITEMS[state.session.list[state.session.idx]-1];
 function canOpen(n){ const s=state.session; if(s.phase==="listening"||s.phase==="wait") return n<=60; return true; }
-function go(i){ const s=state.session; if(i<0||i>=s.list.length) return; if(!canOpen(s.list[i])) return; if(s.mode==="practice") stopAudio(); s.idx=i; render(); window.scrollTo({top:0}); }
+function go(i){ const s=state.session; if(i<0||i>=s.list.length) return; if(!canOpen(s.list[i])) return; if(s.mode==="practice") stopAudio(); if(s.phase==="listening") s.follow=(s.list[i]===s.live.cur); s.idx=i; render(); window.scrollTo({top:0}); }
+
+/* ================= ทำค้างไว้ (draft) ================= */
+const draftKey = () => "draft:"+((typeof state!=="undefined"&&state.user&&state.user.id)||"me");
+function getDraft(){ return LS.get(draftKey(), null); }
+function clearDraft(){ LS.set(draftKey(), null); }
+function saveDraft(){
+  const s=state.session; if(!s||s.finished||s.mode==="room"||state.view!=="exam") return;
+  const d=Object.assign({}, s, { live:{cur:null,stage:null,gapLeft:0}, savedAt:Date.now(),
+    readLeft: s.phase==="reading"&&s.deadline ? Math.max(0,s.deadline-Date.now()) : null,
+    resumeUnit: s.phase==="listening" ? (s.unitIdx||0) : null, topicSet: s.topic ? SET : null });
+  LS.set(draftKey(), d);
+}
+function pauseSession(){
+  saveDraft(); if(engine){ engine.stop(); engine=null; } stopAudio(); clearInterval(timerH);
+  state.session=null; state.view="home"; render(); window.scrollTo({top:0});
+}
+function resumeDraft(){
+  const d=getDraft(); if(!d) return;
+  useSet(d.topicSet || findPractice(d.setId));
+  const s = state.session = Object.assign({}, d, { live:{cur:null,stage:null,gapLeft:0}, follow:true });
+  delete s.topicSet; state.view="exam";
+  if (s.phase==="reading"){ s.deadline = Date.now() + (d.readLeft!=null ? d.readLeft : READ_MIN*60000); render(); tick(); }
+  else if (s.mode==="sim" && s.phase==="listening"){ render(); tick(); runSimEngine(s, d.resumeUnit||0); }
+  else { render(); tick(); }
+  window.scrollTo({top:0});
+}
+window.addEventListener("pagehide", ()=>{ try{ saveDraft(); }catch(e){} });
 
 /* ================= room (สอบรวม) ================= */
 let roomState=null, roomUnsub=null, peers=[], proctor=null, lastDbWrite=0;
@@ -354,7 +390,7 @@ function applyRoom(st){
   if (state.view==="exam" && s && s.mode==="room" && !s.finished){
     if (st.sid!==s.sid) return;
     if (st.status==="listening"){ s.phase="listening"; s.live.cur=st.item; s.live.stage=st.stage; s.live.gapLeft=st.gapLeft||0; s.live.recv=Date.now();
-      if (st.item){ const i=s.list.indexOf(st.item); if(i>=0) s.idx=i; }
+      if (st.item) followLive(s, st.item);
       if (s.audio==="each" && st.stage==="speak" && st.item && (!prev || prev.item!==st.item || prev.stage!=="speak")){ const it=ITEMS[st.item-1]; say(linesFor(it)); }
       if (s.audio==="each" && st.stage==="dir" && (!prev||prev.stage!=="dir"||prev.item!==st.item)){ const it=ITEMS[st.item-1]; say([["N",PARTS[it.p].say]]); }
       render(); }
@@ -474,8 +510,10 @@ function liveHTML(item){
   else if (L.stage==="speak") msg = g.g ? `กำลังเล่นเสียงข้อ ${ITEMS.filter(x=>x.g===g.g).map(x=>x.n).join("–")}` : `กำลังเล่นเสียงข้อ ${L.cur}`;
   else if (L.stage==="gap"){ msg=`เลือกคำตอบข้อ ${L.cur}`; cd=`<span class="cd" id="cd">${Math.ceil(L.gapLeft)}</span><span class="small muted">วินาที</span>`; }
   const src = s.mode==="room" && s.audio!=="each" ? "เสียงจากลำโพงผู้คุมสอบ" : "เสียงจากเครื่องนี้";
-  const away = L.cur && item.n!==L.cur ? `<button class="btn" id="followBtn" style="padding:4px 10px;font-size:13px">ไปข้อที่กำลังเล่น</button>` : "";
-  return `<div class="livebar"><span class="dot"></span><div style="flex:1"><b>${msg}</b><div class="small muted">${src} · ฟังได้ครั้งเดียว · จอเลื่อนตามเสียงอัตโนมัติ</div></div>${cd}${away}</div>
+  const away = L.cur && item.n!==L.cur ? `<button class="btn" id="followBtn" style="padding:4px 10px;font-size:13px">ไปข้อที่กำลังเล่น (${L.cur})</button>` : "";
+  const skip = s.mode==="sim" && L.stage==="gap" ? `<button class="btn" id="skipGap" style="padding:4px 10px;font-size:13px" title="ไม่ต้องรอ — เล่นเสียงข้อถัดไปเลย">⏭ ข้อถัดไป</button>` : "";
+  const flw = s.follow ? "จอเลื่อนตามเสียงอัตโนมัติ" : "กำลังดูข้ออื่นอยู่ — จอจะไม่เด้งกลับ";
+  return `<div class="livebar"><span class="dot"></span><div style="flex:1"><b>${msg}</b><div class="small muted">${src} · ฟังได้ครั้งเดียว · ${flw}</div></div>${cd}${skip}${away}</div>
   ${state.noAudio && L.cur && L.stage!=="dir" && !(s.mode==="room"&&s.audio!=="each") ? `<div class="script">${esc(scriptText(ITEMS[L.cur-1]))}</div>`:""}`;
 }
 function examView(){
@@ -487,7 +525,7 @@ function examView(){
   const opts = item.o.map((t,i)=>{ let c=s.ans[item.n]===i?"sel":""; if(rev){ if(i===item.a)c="right"; else if(s.ans[item.n]===i)c="wrong"; }
     return `<button class="opt ${c}" data-opt="${i}" ${rev?"disabled":""}><span class="k">${"abcd"[i]}</span><span>${esc(t)}</span></button>`; }).join("");
   const isLast = s.idx===total-1, nextDisabled = !canOpen(s.list[s.idx+1]||0);
-  const title = s.mode==="practice" ? "ฝึก "+PARTS[s.part].name : s.mode==="sim" ? "จำลองสอบ · "+s.setTitle : "สอบรวม · "+s.setTitle;
+  const title = s.mode==="practice" ? (s.topic ? s.setTitle : s.setTitle+" · ฝึก "+PARTS[s.part].name) : s.mode==="sim" ? "จำลองสอบ · "+s.setTitle : "สอบรวม · "+s.setTitle;
   const phaseLbl = s.phase==="listening"?"พาร์ตฟัง":s.phase==="reading"?"พาร์ตอ่าน":s.phase==="wait"?"รอเริ่ม":"";
   const qcard = `<div class="card">
     <div class="qnum">ข้อ ${item.n} <span class="lvl">${item.lv}</span> <span>${PARTS[item.p].name}</span></div>
@@ -649,11 +687,12 @@ function barRow(label,v){ const p=v[0]/v[1]*100, col=p>=70?"var(--ok)":p>=50?"#d
 
 function finish(auto, why){
   const s=state.session; if(!s||s.finished) return;
+  clearDraft();
   if (s.mode==="sim"&&engine){ engine.stop(); engine=null; }
   stopAudio();
   s.finished=true; s.secs=Math.round((Date.now()-s.start)/1000); s.result=score(s);
   const full=s.mode!=="practice";
-  const label = s.mode==="sim"?"จำลองสอบ":s.mode==="room"?"สอบรวม":"ฝึก "+PARTS[s.part].name.split(" ").slice(0,2).join(" ");
+  const label = s.topic ? "ฝึกตามเรื่อง" : s.mode==="sim"?"จำลองสอบ":s.mode==="room"?"สอบรวม":"ฝึก "+PARTS[s.part].name.split(" ").slice(0,2).join(" ");
   const d = diagnose(s);
   const rec={ date:Date.now(), label, mode:s.mode, part:s.part, sid:s.sid||null, setId:s.setId, setTitle:s.setTitle,
     total:s.result.total, max:s.result.max, L:full?s.result.L:null, R:full?s.result.R:null, cefr:s.result.cefr, secs:s.secs,
@@ -817,14 +856,18 @@ function bind(){
     on("[data-opt]", e=>{ s.ans[item.n]=+e.currentTarget.dataset.opt; if(s.mode==="room") presence(); render(); });
     on("#prev", ()=>go(s.idx-1)); on("#next", ()=>go(s.idx+1));
     on("[data-go]", e=>go(+e.currentTarget.dataset.go));
-    on("#followBtn", ()=>{ const i=s.list.indexOf(s.live.cur); if(i>=0) go(i); });
+    on("#followBtn", ()=>{ s.follow=true; const i=s.list.indexOf(s.live.cur); if(i>=0) go(i); });
+    on("#skipGap", ()=>{ if(engine && s.mode==="sim") engine.gapLeft=0; });
     on("#check", ()=>{ s.revealed[item.n]=true; if(item.g) ITEMS.filter(x=>x.g===item.g&&s.ans[x.n]!==undefined).forEach(x=>s.revealed[x.n]=true); render(); });
     on("#playBtn", ()=>{ const key=audioKey(item); if(speakingKey===key){ stopAudio(); render(); return; }
       s.played[key]=true; speakingKey=key; render(); say(linesFor(item)).then(()=>{ speakingKey=null; render(); }); });
     on("#finish", ()=>{ const left=s.list.filter(n=>s.ans[n]===undefined).length;
       modal(`<h3>ส่งคำตอบ?</h3><p class="muted">${left?`ยังไม่ได้ตอบ ${left} ข้อ`:"ตอบครบทุกข้อแล้ว"}</p><div class="navrow"><button class="btn" data-close>กลับไปตรวจ</button><button class="btn primary" id="sendYes">ส่งคำตอบ</button></div>`, ()=>on("#sendYes",()=>{ closeModal(); finish(false); })); });
-    on("#quit", ()=>modal(`<h3>ออกจากการสอบ?</h3><p class="muted">${s.mode==="room"?"ถ้าออก ผลสอบรอบนี้จะไม่ถูกส่ง":"คำตอบในรอบนี้จะไม่ถูกบันทึก"}</p><div class="navrow"><button class="btn" data-close>ทำต่อ</button><button class="btn primary" id="quitYes">ออก</button></div>`,
-      ()=>on("#quitYes",()=>{ closeModal(); if(engine&&s.mode==="sim"){ engine.stop(); engine=null; } stopAudio(); state.view="home"; state.session=null; render(); })));
+    on("#quit", ()=>modal(s.mode==="room"
+        ? `<h3>ออกจากการสอบ?</h3><p class="muted">ถ้าออก ผลสอบรอบนี้จะไม่ถูกส่ง</p><div class="navrow"><button class="btn" data-close>ทำต่อ</button><button class="btn primary" id="quitYes">ออก</button></div>`
+        : `<h3>พักไว้ก่อนไหม?</h3><p class="muted">กด <b>พักไว้</b> แล้วกลับมาทำต่อจากหน้าหลักได้ทุกเมื่อ (คำตอบที่ทำไว้ ${Object.keys(s.ans).length} ข้อจะยังอยู่)${s.mode==="sim"&&s.phase==="listening"?" · พาร์ตฟังจะเล่นต่อจากข้อที่ค้างไว้":""}${s.phase==="reading"?" · เวลาอ่านที่เหลือจะหยุดนับระหว่างพัก":""}</p><div class="navrow"><button class="btn" data-close>ทำต่อ</button><button class="btn" id="quitYes">ทิ้งรอบนี้</button><button class="btn primary" id="pauseYes">⏸ พักไว้</button></div>`,
+      ()=>{ on("#quitYes",()=>{ closeModal(); if(engine&&s.mode==="sim"){ engine.stop(); engine=null; } stopAudio(); clearDraft(); state.view="home"; state.session=null; render(); });
+            on("#pauseYes",()=>{ closeModal(); pauseSession(); }); }));
   }
   if (state.view==="result"){
     on("[data-f]", e=>{ state.review.filter=e.currentTarget.dataset.f; render(); });
@@ -1623,12 +1666,12 @@ function drawMemberCharts(id){
 }
 
 function studentHome(){
-  const u=state.user;
+  const u=state.user; if(!state.session) useSet(findPractice(state.setId));
   return `<div class="wrap"><div class="grid2" style="grid-template-columns:1.6fr 1fr">
     <div>${memberDash(u.id,false)}</div>
-    <div class="card"><h3>📚 ฝึกด้วยตัวเอง</h3>
+    <div>${resumeCard()}<div class="card"><h3>📚 ฝึกด้วยตัวเอง</h3>
       <div class="small muted" style="margin-bottom:6px">① เลือกชุดฝึก</div>
-      <div class="setgrid">${PRACTICE_SETS.map(s=>{ const mine=Store.attempts().filter(x=>x.memberId===u.id&&x.setId===s.id), sims=mine.filter(x=>x.mode==="sim"), best=sims.length?Math.max(...sims.map(x=>x.total)):null, on=state.setId===s.id;
+      <div class="setgrid">${PRACTICE_SETS.map(s=>{ const mine=Store.attempts().filter(x=>x.memberId===u.id&&!x.topic&&(x.setId===s.id||(!x.setId&&x.setTitle===s.title))), sims=mine.filter(x=>x.mode==="sim"), best=sims.length?Math.max(...sims.map(x=>x.total)):null, on=state.setId===s.id;
         return `<button data-setid="${s.id}" class="setcard${on?" on":""}"><span class="sn">${on?"✓ ":""}${esc(s.title)}</span><span class="ss">${best!=null?`ดีสุด ${best}/100`:mine.length?`ฝึกแล้ว ${mine.length} ครั้ง`:"ยังไม่เคยทำ"}</span></button>`; }).join("")}</div>
       <div class="setnow">กำลังใช้: <b>${esc(findPractice(state.setId).title)}</b></div>
       <div class="small muted" style="margin:10px 0 6px">② เลือกวิธีฝึก</div>
@@ -1637,8 +1680,72 @@ function studentHome(){
       ${Object.entries(PARTS).map(([k,p])=>`<button class="mode" data-act="practice" data-part="${k}"><b>ฝึกทีละข้อ · ${p.name}</b><span>${p.range} · เฉลยทันที</span></button>`).join("")}
       <button class="mode" disabled style="opacity:.55"><b>👥 เข้าห้องสอบรวม</b><span>เปิดใช้เมื่อเชื่อมฐานข้อมูลจริง</span></button>
       <p class="small muted">ผลทุกครั้งถูกบันทึกเข้าประวัติของคุณ และผู้ติวเห็นภาพรวม</p>
-    </div></div></div>`;
+    </div>${topicCard(u.id)}</div></div></div>`;
 }
+
+/* ---------- ทำค้างไว้ ---------- */
+function resumeCard(){
+  const d=getDraft(); if(!d) return "";
+  const what = d.topic ? "ฝึกตามเรื่อง · "+d.setTitle : d.mode==="sim" ? "จำลองสอบเต็มชุด · "+d.setTitle : d.setTitle+" · ฝึก "+PARTS[d.part].name;
+  const where = d.phase==="listening" ? "พาร์ตฟัง" : d.phase==="reading" ? `พาร์ตอ่าน (เหลือเวลา ${Math.ceil((d.readLeft||0)/60000)} นาที)` : "ข้อ "+d.list[d.idx];
+  return `<div class="card" style="border:2px solid var(--navy);background:#eef3fb;margin-bottom:14px"><h3 style="margin-top:0">⏸ ทำค้างไว้</h3>
+    <div><b>${esc(what)}</b></div><div class="small muted">${where} · ตอบแล้ว ${Object.keys(d.ans).length}/${d.list.length} ข้อ · พักไว้เมื่อ ${fmtD(d.savedAt)} ${new Date(d.savedAt).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</div>
+    <div class="navrow" style="justify-content:flex-start;gap:8px"><button class="btn primary" id="resumeGo">▶ ทำต่อ</button><button class="btn" id="resumeDrop">ทิ้ง</button></div></div>`;
+}
+
+/* ---------- ฝึกตามเรื่อง (Grammar/Vocab topic drills) ---------- */
+const TOPICS = [
+  ["passive","🔄 Passive voice",it=>/passive/i.test(it.fc||"")],
+  ["inv","↩️ Inversion",it=>/inversion|no sooner|hardly|not only|scarcely/i.test(it.fc||"")],
+  ["cond","🔀 If-clause / Wish",it=>/conditional|if i were|unless|were \.\.\. to|wish|would rather|would sooner|it's (high )?time|as long as|on condition/i.test(it.fc||"")],
+  ["rel","🔗 Relative clause",it=>/relative|whose|whom/i.test(it.fc||"")],
+  ["verbpat","🧩 Gerund / to-infinitive",it=>/v-ing|to v|suggest|stop|regret|look forward|interested in|be used to/i.test(it.fc||"")],
+  ["comp","📏 Comparison",it=>/comparative|superlative|as \.\.\. as|the more/i.test(it.fc||"")],
+  ["modal","🧭 Modal verbs",it=>/must|should|can't|might|have to|had better|\bcan\b|could you|may/i.test(it.fc||"")],
+  ["tense","⏱ Tense (กาล)",it=>/present|past|future|perfect|continuous|used to|going to|about to/i.test(it.fc||"")],
+  ["phr","🧷 Phrasal verbs & collocations",it=>it.sub==="Vocab"&&/phrasal|collocation|take|turn|put|get|make|do|keep|bear|fill|come|go|carry|switch|sign/i.test((it.fc||"")+" "+(it.ex||""))],
+  ["vocab","📖 Vocabulary",it=>it.sub==="Vocab"],
+  ["gram","✏️ Grammar อื่นๆ",it=>it.sub==="Grammar"]];
+let TOPIC_POOL=null;
+function topicPool(){
+  if (TOPIC_POOL) return TOPIC_POOL; TOPIC_POOL={}; TOPICS.forEach(([k])=>TOPIC_POOL[k]=[]);
+  PRACTICE_SETS.forEach(set=>set.items.filter(it=>it.p==="R"&&(it.sub==="Grammar"||it.sub==="Vocab")).forEach(it=>{
+    const t=TOPICS.find(([k,n,f])=>f(it)); if(t) TOPIC_POOL[t[0]].push(Object.assign({},it,{_from:set.id})); }));
+  return TOPIC_POOL;
+}
+function topicStats(id){
+  const st={}; Store.attempts().filter(a=>a.memberId===id&&a.topic).forEach(a=>{ const x=(st[a.topic] ||= {c:0,n:0,k:0}); x.c+=a.total; x.n+=a.max; x.k++; }); return st;
+}
+function topicCard(id){
+  const pool=topicPool(), st=topicStats(id);
+  return `<div class="card" style="margin-top:14px"><h3 style="margin-top:0">🎯 ฝึกตามเรื่อง</h3>
+    <p class="small muted" style="margin-top:0">สุ่มข้อไวยากรณ์/คำศัพท์จากชุดฝึกทุกชุดมาฝึกเป็นเรื่องๆ (ครั้งละไม่เกิน 15 ข้อ · เฉลยทันที)</p>
+    <div class="setgrid">${TOPICS.filter(([k])=>pool[k].length).map(([k,name])=>{ const x=st[k];
+      return `<button class="setcard" data-topic="${k}"><span class="sn" style="font-size:14px">${name}</span><span class="ss">${pool[k].length} ข้อ${x?` · ถูก ${Math.round(x.c/x.n*100)}% (${x.k} ครั้ง)`:""}</span></button>`; }).join("")}</div></div>`;
+}
+function startTopic(k){
+  const t=TOPICS.find(x=>x[0]===k); const src=topicPool()[k].slice();
+  for(let i=src.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [src[i],src[j]]=[src[j],src[i]]; }
+  const items=src.slice(0,15).map((it,i)=>Object.assign({},it,{n:i+1}));
+  useSet({ id:"T-"+k, title:t[1], kind:"practice", groups:{}, items });
+  state.session=newSession("practice","R"); state.session.topic=k; state.view="exam"; render(); tick(); window.scrollTo({top:0});
+}
+
+/* ---------- สถิติจากการฝึกทั้งหมด ---------- */
+function practiceStatsCard(id){
+  const all=Store.attempts().filter(a=>a.memberId===id); if(!all.length) return "";
+  const sk={}; all.forEach(a=>Object.entries(a.sk||{}).forEach(([k,[c,n]])=>{ (sk[k] ||= [0,0]); sk[k][0]+=c; sk[k][1]+=n; }));
+  const rows=Object.keys(SKILLS).filter(k=>sk[k]&&sk[k][1]).sort((a,b)=>pctOf(sk[a])-pctOf(sk[b]));
+  const bar=(c,n)=>{ const p=Math.round(c/n*100), col=p>=80?"var(--good,#1baf7a)":p>=60?"#e3a008":"var(--bad,#d64545)";
+    return `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:8px;background:#eef0f4;border-radius:4px;overflow:hidden"><div style="width:${p}%;height:100%;background:${col}"></div></div><span class="small" style="width:92px;text-align:right">${p}% <span class="muted">(${c}/${n})</span></span></div>`; };
+  const ts=topicStats(id), trows=TOPICS.filter(([k])=>ts[k]);
+  return `<div class="card" style="margin-top:14px"><h3 style="margin-top:0">📈 สถิติรายด้าน (รวมทุกครั้งที่ทำ ทั้งฝึกและจำลองสอบ)</h3>
+    <p class="small muted" style="margin-top:0">เรียงจากด้านที่ยังอ่อนที่สุด · นับจาก ${all.length} ครั้งที่ทำ</p>
+    ${rows.map(k=>`<div style="margin:6px 0"><div class="small"><b>${esc(SKILLS[k].name)}</b> <span class="muted">· ${SKILLS[k].sec==="L"?"ฟัง":"อ่าน"}</span></div>${bar(sk[k][0],sk[k][1])}</div>`).join("")}
+    ${trows.length?`<h4 style="margin:14px 0 4px">🎯 ฝึกตามเรื่อง</h4>${trows.map(([k,name])=>`<div style="margin:6px 0"><div class="small"><b>${name}</b> <span class="muted">· ${ts[k].k} ครั้ง</span></div>${bar(ts[k].c,ts[k].n)}</div>`).join("")}`:""}</div>`;
+}
+const _memberDash0 = memberDash;
+memberDash = function(id, asTutor){ return _memberDash0(id, asTutor) + practiceStatsCard(id); };
 
 /* ---------- tutor dashboard ---------- */
 function unitData(){
@@ -1756,7 +1863,7 @@ finish = function(auto, why){
   const s=state.session; const was=s&&!s.finished; _finish(auto, why);
   if (was && state.user && state.user.role==="student" && s.result){
     const d=diagnose(s);
-    Store.addAttempt({ memberId:state.user.id, date:Date.now(), mode:s.mode, label:s.mode==="practice"?"ฝึก "+PARTS[s.part].name.split(" ").slice(0,2).join(" "):s.mode==="room"?"สอบรวม":"จำลองสอบ",
+    Store.addAttempt({ memberId:state.user.id, setId:s.setId, topic:s.topic||null, date:Date.now(), mode:s.mode, label:s.topic?"ฝึกตามเรื่อง":s.mode==="practice"?"ฝึก "+PARTS[s.part].name.split(" ").slice(0,2).join(" "):s.mode==="room"?"สอบรวม":"จำลองสอบ",
       setTitle:s.setTitle, total:s.result.total, max:s.result.max, L:s.mode!=="practice"?s.result.L:null, R:s.mode!=="practice"?s.result.R:null,
       cefr:s.result.cefr, sk:Object.fromEntries(Object.entries(d.sk).map(([k,v])=>[k,[v[0],v[1]]])) });
   }
@@ -1772,7 +1879,7 @@ render = function(){
   else if (v==="result") html=resultView();
   else if (state.page==="learn") html = learnView();
   else html = u.role==="tutor" ? tutorDash() : studentHome();
-  $("#app").innerHTML=navBar()+html; bind(); bindProto();
+  $("#app").innerHTML=navBar()+html; bind(); bindProto(); if(v==="exam") saveDraft();
   if (u && v!=="exam" && v!=="result" && state.page!=="learn"){ if(u.role==="tutor") drawTutorCharts(); else drawMemberCharts(u.id); }
 };
 function bindProto(){
@@ -1821,6 +1928,9 @@ function bindProto(){
   on("[data-page]", e=>{ state.page=e.currentTarget.dataset.page; state.viewMember=null; render(); window.scrollTo({top:0}); });
   on("[data-golearn]", e=>{ const l=SK_LINK[e.currentTarget.dataset.golearn]; state.page="learn"; state.learn.tab=l.tab; if(l.cat) state.learn.cat=l.cat; state.learn.lesson=null; render(); window.scrollTo({top:0}); });
   on("[data-ltab]", e=>{ state.learn.tab=e.currentTarget.dataset.ltab; state.learn.lesson=null; render(); });
+  on("#resumeGo", ()=>resumeDraft());
+  on("#resumeDrop", ()=>modal(`<h3>ทิ้งรอบที่ทำค้างไว้?</h3><p class="muted">คำตอบที่ทำไว้จะหายไป</p><div class="navrow"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="dropYes">ทิ้ง</button></div>`, ()=>$("#dropYes").addEventListener("click",()=>{ clearDraft(); closeModal(); render(); })));
+  on("[data-topic]", e=>{ const tk=e.currentTarget.dataset.topic, go=()=>startTopic(tk); if(getDraft()) modal(`<h3>มีรอบที่ทำค้างไว้</h3><p class="muted">ถ้าเริ่มใหม่ รอบที่ค้างไว้จะถูกแทนที่</p><div class="navrow"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="newYes">เริ่มใหม่</button></div>`, ()=>$("#newYes").addEventListener("click",()=>{ closeModal(); clearDraft(); go(); })); else go(); });
   on("[data-vlv]", e=>{ state.learn.lv=e.currentTarget.dataset.vlv; state.learn.fc=0; state.learn.flip=false; state.learn.quiz=null; render(); });
   on("[data-vcat]", e=>{ state.learn.cat=e.currentTarget.dataset.vcat; state.learn.fc=0; state.learn.flip=false; state.learn.quiz=null; render(); });
   document.querySelectorAll('[data-seg="vmode"] button').forEach(b=>b.addEventListener("click",()=>{ state.learn.mode=b.dataset.v; state.learn.quiz=null; state.learn.flip=false; render(); }));
@@ -1923,6 +2033,12 @@ function navBar(){ if(!state.user||state.view==="exam"||state.view==="result") r
   const p=state.page; return `<div style="background:#fff;border-bottom:1px solid var(--line)"><div class="wrap" style="padding:8px 18px;display:flex;gap:6px">
     <button class="btn ${p==="home"?"primary":""}" data-page="home" style="padding:6px 14px">${state.user.role==="tutor"?"📊 แดชบอร์ด":"🏠 หน้าของฉัน"}</button>
     <button class="btn ${p==="learn"?"primary":""}" data-page="learn" style="padding:6px 14px">📖 คลังความรู้</button></div></div>`; }
+
+/* เริ่มรอบใหม่ขณะมีรอบค้าง → ถามก่อน */
+function guardDraft(go){ if(!getDraft()) return go(); modal(`<h3>มีรอบที่ทำค้างไว้</h3><p class="muted">ถ้าเริ่มใหม่ รอบที่ค้างไว้จะถูกแทนที่ — หรือกลับไปกด "▶ ทำต่อ" ที่หน้าหลัก</p><div class="navrow"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="newYes">เริ่มใหม่</button></div>`, ()=>$("#newYes").addEventListener("click",()=>{ closeModal(); clearDraft(); go(); })); }
+const _startSim0=startSim, _startPractice0=startPractice;
+startSim=function(){ guardDraft(()=>_startSim0()); };
+startPractice=function(part){ guardDraft(()=>_startPractice0(part)); };
 
 
 /* ======================================================================
